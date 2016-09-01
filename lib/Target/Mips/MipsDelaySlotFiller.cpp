@@ -46,7 +46,7 @@ static cl::opt<bool> DisableDelaySlotFiller(
 
 static cl::opt<bool> DisableForwardSearch(
   "disable-mips-df-forward-search",
-  cl::init(true),
+  cl::init(false),
   cl::desc("Disallow MIPS delay filler to search forward."),
   cl::Hidden);
 
@@ -578,6 +578,11 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     if (!hasUnoccupiedSlot(&*I))
       continue;
 
+    // MIPS2 or later does not have load-delay-slot, disable it here.
+    if (I->mayLoad() && STI.hasMips2()) {
+      continue;
+    }
+
     ++FilledSlots;
     Changed = true;
 
@@ -726,8 +731,8 @@ bool Filler::searchBackward(MachineBasicBlock &MBB, Iter Slot) const {
 }
 
 bool Filler::searchForward(MachineBasicBlock &MBB, Iter Slot) const {
-  // Can handle only calls.
-  if (DisableForwardSearch || !Slot->isCall())
+  // Can handle only calls and loads.
+  if (DisableForwardSearch || (!Slot->isCall() && !Slot->mayLoad()))
     return false;
 
   RegDefsUses RegDU(*MBB.getParent()->getSubtarget().getRegisterInfo());

@@ -1170,6 +1170,7 @@ class LoadMemory<string opstr, DAGOperand RO, DAGOperand MO,
   let DecoderMethod = "DecodeMem";
   let canFoldAsLoad = 1;
   let mayLoad = 1;
+  let hasDelaySlot = 1; // MIPS1 has it. others does not, disabled by code in MipsDelaySlotFilter.cpp.
 }
 
 class Load<string opstr, DAGOperand RO, SDPatternOperator OpNode = null_frag,
