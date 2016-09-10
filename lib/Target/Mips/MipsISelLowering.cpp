@@ -2162,6 +2162,8 @@ SDValue MipsTargetLowering::lowerATOMIC_FENCE(SDValue Op,
   // FIXME: Set SType for weaker fences where supported/appropriate.
   unsigned SType = 0;
   SDLoc DL(Op);
+  if (!Subtarget.hasMips2())
+    return SDValue(); // FIXME no fence on MIPS-I just for make compilable.
   return DAG.getNode(MipsISD::Sync, DL, MVT::Other, Op.getOperand(0),
                      DAG.getConstant(SType, DL, MVT::i32));
 }
