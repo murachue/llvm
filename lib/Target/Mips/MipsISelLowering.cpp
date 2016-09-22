@@ -938,14 +938,65 @@ addLiveIn(MachineFunction &MF, unsigned PReg, const TargetRegisterClass *RC)
 static MachineBasicBlock *insertDivByZeroTrap(MachineInstr &MI,
                                               MachineBasicBlock &MBB,
                                               const TargetInstrInfo &TII,
-                                              bool Is64Bit, bool IsMicroMips) {
+                                              bool Is64Bit, bool IsMicroMips, bool HasTeq) {
   if (NoZeroDivCheck)
     return &MBB;
 
-  // Insert instruction "teq $divisor_reg, $zero, 7".
   MachineBasicBlock::iterator I(MI);
   MachineInstrBuilder MIB;
   MachineOperand &Divisor = MI.getOperand(2);
+
+  if (!HasTeq) {
+    // The goal is insert "bne $divisor_reg, $zero, next; break 0x1C00; next:".
+
+    MachineFunction *MF = MBB.getParent();
+    DebugLoc DL = MI.getDebugLoc();
+
+    // insert new blocks after the current block
+    // exitMBB must be after breakMBB, to optimize fallthrough. (FIXME I thought. really?)
+    const BasicBlock *LLVM_BB = MBB.getBasicBlock();
+    MachineBasicBlock *breakMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+    MachineBasicBlock *exitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+    MachineFunction::iterator It = ++MBB.getIterator();
+    MF->insert(It, breakMBB);
+    MF->insert(It, exitMBB);
+
+    // Transfer the remainder of BB and its successor edges to exitMBB.
+    exitMBB->splice(exitMBB->begin(), &MBB, std::next(I), MBB.end());
+    exitMBB->transferSuccessorsAndUpdatePHIs(&MBB);
+
+    // Append "bne $divisor_reg, $zero, nextBB" to (this)MBB
+    BuildMI(&MBB, DL, TII.get(Mips::BNE))
+      .addReg(Divisor.getReg(), getKillRegState(Divisor.isKill()))
+      .addReg(Mips::ZERO)
+      .addMBB(exitMBB);
+
+    // Clear original Divisor's kill flag.
+    Divisor.setIsKill(false);
+
+    //  thisMBB:
+    //    ...
+    //    bne ..., exitMBB
+    //    fallthrough
+    //  breakMBB:
+    //    ...
+    //    fallthrough --> exitMBB
+    MBB.addSuccessor(breakMBB);
+    MBB.addSuccessor(exitMBB); // by bne
+    breakMBB->addSuccessor(exitMBB);
+
+    //  breakMBB:
+    //    break 0x1C00
+    MIB = BuildMI(breakMBB, DL, TII.get(Mips::BREAK))
+      .addImm(0x1C00);
+
+    // We would normally delete the original instruction here but in this case
+    // we only needed to inject an additional instruction rather than replace it.
+
+    return exitMBB;
+  }
+
+  // Insert instruction "teq $divisor_reg, $zero, 7".
   MIB = BuildMI(MBB, std::next(I), MI.getDebugLoc(),
                 TII.get(IsMicroMips ? Mips::TEQ_MM : Mips::TEQ))
             .addReg(Divisor.getReg(), getKillRegState(Divisor.isKill()))
@@ -1049,7 +1100,7 @@ MipsTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case Mips::MOD:
   case Mips::MODU:
     return insertDivByZeroTrap(MI, *BB, *Subtarget.getInstrInfo(), false,
-                               false);
+                               false, Subtarget.hasMips2());
   case Mips::SDIV_MM_Pseudo:
   case Mips::UDIV_MM_Pseudo:
   case Mips::SDIV_MM:
@@ -1058,19 +1109,19 @@ MipsTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case Mips::DIVU_MMR6:
   case Mips::MOD_MMR6:
   case Mips::MODU_MMR6:
-    return insertDivByZeroTrap(MI, *BB, *Subtarget.getInstrInfo(), false, true);
+    return insertDivByZeroTrap(MI, *BB, *Subtarget.getInstrInfo(), false, true, Subtarget.hasMips2());
   case Mips::PseudoDSDIV:
   case Mips::PseudoDUDIV:
   case Mips::DDIV:
   case Mips::DDIVU:
   case Mips::DMOD:
   case Mips::DMODU:
-    return insertDivByZeroTrap(MI, *BB, *Subtarget.getInstrInfo(), true, false);
+    return insertDivByZeroTrap(MI, *BB, *Subtarget.getInstrInfo(), true, false, Subtarget.hasMips2());
   case Mips::DDIV_MM64R6:
   case Mips::DDIVU_MM64R6:
   case Mips::DMOD_MM64R6:
   case Mips::DMODU_MM64R6:
-    return insertDivByZeroTrap(MI, *BB, *Subtarget.getInstrInfo(), true, true);
+    return insertDivByZeroTrap(MI, *BB, *Subtarget.getInstrInfo(), true, true, Subtarget.hasMips2());
   case Mips::SEL_D:
   case Mips::SEL_D_MMR6:
     return emitSEL_D(MI, BB);
