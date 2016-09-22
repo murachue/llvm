@@ -62,6 +62,12 @@ static cl::opt<bool> DisableBackwardSearch(
   cl::desc("Disallow MIPS delay filler to search backward."),
   cl::Hidden);
 
+static cl::opt<bool> DisableLoadDelaySlotFiller(
+  "disable-mips-load-delay-filler",
+  cl::init(false),
+  cl::desc("Fill load delay slots with NOPs."),
+  cl::Hidden);
+
 enum CompactBranchPolicy {
   CB_Never,   ///< The policy 'never' may in some circumstances or for some
               ///< ISAs not be absolutely adhered to.
@@ -587,7 +593,7 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     Changed = true;
 
     // Delay slot filling is disabled at -O0.
-    if (!DisableDelaySlotFiller && (TM.getOptLevel() != CodeGenOpt::None)) {
+    if (!DisableDelaySlotFiller && !(I->mayLoad() && DisableLoadDelaySlotFiller) && (TM.getOptLevel() != CodeGenOpt::None)) {
       bool Filled = false;
 
       if (MipsCompactBranchPolicy.getValue() != CB_Always ||
