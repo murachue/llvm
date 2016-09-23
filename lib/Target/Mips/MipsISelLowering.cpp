@@ -1481,6 +1481,54 @@ MachineBasicBlock *MipsTargetLowering::emitAtomicCmpSwap(MachineInstr &MI,
   unsigned OldVal = MI.getOperand(2).getReg();
   unsigned NewVal = MI.getOperand(3).getReg();
 
+  if (!Subtarget.hasMips2()) {
+    // MIPS-I special: NON(!!)-atomic CAS
+
+    // insert new blocks after the current block
+    const BasicBlock *LLVM_BB = BB->getBasicBlock();
+    MachineBasicBlock *temp1MBB = MF->CreateMachineBasicBlock(LLVM_BB);
+    MachineBasicBlock *temp2MBB = MF->CreateMachineBasicBlock(LLVM_BB);
+    MachineBasicBlock *exitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+    MachineFunction::iterator It = ++BB->getIterator();
+    MF->insert(It, temp1MBB);
+    MF->insert(It, temp2MBB);
+    MF->insert(It, exitMBB);
+
+    // Transfer the remainder of BB and its successor edges to exitMBB.
+    exitMBB->splice(exitMBB->begin(), BB,
+                    std::next(MachineBasicBlock::iterator(MI)), BB->end());
+    exitMBB->transferSuccessorsAndUpdatePHIs(BB);
+
+    // thisMBB:
+    //   ...
+    //   fallthrough --> temp1MBB
+    BB->addSuccessor(temp1MBB);
+    temp1MBB->addSuccessor(temp2MBB);
+    temp1MBB->addSuccessor(exitMBB);
+    temp2MBB->addSuccessor(exitMBB);
+
+    // note: appending tempMBBs' content to thisMBB here does not work;
+    //       llc says "LLVM ERROR: Undefined temporary symbol"
+    //       maybe because of insns-after-branch-in-a-BB?
+
+    // temp1MBB:
+    //   lw dest, 0(ptr)
+    //   bne dest, oldval, exitMBB
+    BB = temp1MBB;
+    BuildMI(BB, DL, TII->get(Mips::LW), Dest).addReg(Ptr).addImm(0);
+    BuildMI(BB, DL, TII->get(BNE))
+      .addReg(Dest).addReg(OldVal).addMBB(exitMBB);
+
+    // temp2MBB:
+    //   sw newval, 0(ptr)
+    BB = temp2MBB;
+    BuildMI(BB, DL, TII->get(Mips::SW)).addReg(NewVal).addReg(Ptr).addImm(0);
+
+    MI.eraseFromParent(); // The instruction is gone now.
+
+    return exitMBB;
+  }
+
   unsigned Success = RegInfo.createVirtualRegister(RC);
 
   // insert new blocks after the current block
