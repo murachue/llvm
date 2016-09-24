@@ -1198,6 +1198,85 @@ MachineBasicBlock *MipsTargetLowering::emitAtomicBinary(MachineInstr &MI,
   unsigned AndRes = RegInfo.createVirtualRegister(RC);
   unsigned Success = RegInfo.createVirtualRegister(RC);
 
+  if (!Subtarget.hasMips2()) {
+    // MIPS-I special: NON(!!)-atomic word binop
+    MachineBasicBlock::iterator I(MI);
+
+/*
+    //  thisMBB:
+    //    ...
+    //    # instead of atomicbinary pseudo-op, insert lw-binop-sw
+    //    lw oldval, 0(ptr)
+    //    <binop> storeval, oldval, incr
+    //    sw storeval, 0(ptr)
+    //    ...
+    ++I;
+    BuildMI(*BB, I, DL, TII->get(Mips::LW), OldVal).addReg(Ptr).addImm(0);
+    if (Nand) {
+      //  and andres, oldval, incr
+      //  nor storeval, $0, andres
+      ++I;
+      BuildMI(*BB, I, DL, TII->get(AND), AndRes).addReg(OldVal).addReg(Incr);
+      ++I;
+      BuildMI(*BB, I, DL, TII->get(NOR), StoreVal).addReg(ZERO).addReg(AndRes);
+    } else if (BinOpcode) {
+      //  <binop> storeval, oldval, incr
+      ++I;
+      BuildMI(*BB, I, DL, TII->get(BinOpcode), StoreVal).addReg(OldVal).addReg(Incr);
+    } else {
+      StoreVal = Incr;
+    }
+    ++I;
+    BuildMI(*BB, I, DL, TII->get(Mips::SW)).addReg(StoreVal).addReg(Ptr).addImm(0);
+//*/
+    // I DON'T KNOW HOW TO INSERT CORRECTLY... USE DUMMY BB
+    // (OR LLVM SAYS CRYPTIC MESSAGE: "LLVM ERROR: out of range PC16 fixup")
+
+//*
+    // insert new blocks after the current block
+    const BasicBlock *LLVM_BB = BB->getBasicBlock();
+    MachineBasicBlock *dummyMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+    MachineBasicBlock *exitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+    MachineFunction::iterator It = ++BB->getIterator();
+    MF->insert(It, dummyMBB);
+    MF->insert(It, exitMBB);
+
+    // Transfer the remainder of BB and its successor edges to exitMBB.
+    exitMBB->splice(exitMBB->begin(), BB,
+                    std::next(MachineBasicBlock::iterator(MI)), BB->end());
+    exitMBB->transferSuccessorsAndUpdatePHIs(BB);
+
+    //  thisMBB:
+    //    ...
+    //    fallthrough --> loopMBB
+    BB->addSuccessor(dummyMBB);
+    dummyMBB->addSuccessor(exitMBB);
+
+    //  dummyMBB:
+    //    lw oldval, 0(ptr)
+    //    <binop> storeval, oldval, incr
+    //    sw storeval, 0(ptr)
+    BB = dummyMBB;
+    BuildMI(BB, DL, TII->get(Mips::LW), OldVal).addReg(Ptr).addImm(0);
+    if (Nand) {
+      //  and andres, oldval, incr
+      //  nor storeval, $0, andres
+      BuildMI(BB, DL, TII->get(AND), AndRes).addReg(OldVal).addReg(Incr);
+      BuildMI(BB, DL, TII->get(NOR), StoreVal).addReg(ZERO).addReg(AndRes);
+    } else if (BinOpcode) {
+      //  <binop> storeval, oldval, incr
+      BuildMI(BB, DL, TII->get(BinOpcode), StoreVal).addReg(OldVal).addReg(Incr);
+    } else {
+      StoreVal = Incr;
+    }
+    BuildMI(BB, DL, TII->get(Mips::SW)).addReg(StoreVal).addReg(Ptr).addImm(0);
+//*/
+
+    MI.eraseFromParent(); // The instruction is gone now.
+
+    return BB;
+  }
+
   // insert new blocks after the current block
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineBasicBlock *loopMBB = MF->CreateMachineBasicBlock(LLVM_BB);
