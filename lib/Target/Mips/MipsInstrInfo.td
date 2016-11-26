@@ -2058,6 +2058,10 @@ let AdditionalPredicates = [NotInMicroMips] in {
 def MFC2 : MFC3OP<"mfc2", GPR32Opnd, COP2Opnd, II_MFC2>, MFC3OP_FM<0x12, 0>;
 def MTC2 : MTC3OP<"mtc2", COP2Opnd, GPR32Opnd, II_MTC2>, MFC3OP_FM<0x12, 4>;
 
+// TODO is itinerary same as M[FT]C2?
+def CFC2 : MFC3OP<"cfc2", GPR32Opnd, COP2Opnd, II_MFC2>, MFC3OP_FM<0x12, 2>;
+def CTC2 : MTC3OP<"ctc2", COP2Opnd, GPR32Opnd, II_MTC2>, MFC3OP_FM<0x12, 6>;
+
 class Barrier<string asmstr, InstrItinClass itin = NoItinerary> :
   InstSE<(outs), (ins), asmstr, [], itin, FrmOther, asmstr>;
 
@@ -2258,6 +2262,8 @@ def : MipsInstAlias<"mfc0 $rt, $rd", (MFC0 GPR32Opnd:$rt, COP0Opnd:$rd, 0), 0>;
 def : MipsInstAlias<"mtc0 $rt, $rd", (MTC0 COP0Opnd:$rd, GPR32Opnd:$rt, 0), 0>;
 def : MipsInstAlias<"mfc2 $rt, $rd", (MFC2 GPR32Opnd:$rt, COP2Opnd:$rd, 0), 0>;
 def : MipsInstAlias<"mtc2 $rt, $rd", (MTC2 COP2Opnd:$rd, GPR32Opnd:$rt, 0), 0>;
+def : MipsInstAlias<"cfc2 $rt, $rd", (CFC2 GPR32Opnd:$rt, COP2Opnd:$rd, 0), 0>;
+def : MipsInstAlias<"ctc2 $rt, $rd", (CTC2 COP2Opnd:$rd, GPR32Opnd:$rt, 0), 0>;
 let AdditionalPredicates = [NotInMicroMips] in {
 def : MipsInstAlias<"b $offset", (BEQ ZERO, ZERO, brtarget:$offset), 0>;
 }
